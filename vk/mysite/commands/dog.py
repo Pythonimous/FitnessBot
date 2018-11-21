@@ -6,8 +6,8 @@ def dog():
    # Получаем случайную картинку из паблика
    attachment = vkapi.get_random_wall_picture(-119071337, settings.access_token)
    message = 'На тебе пёселя!\nВ следующий раз пришлю другого пёселя :)'
-   vkapi.to_drive(attachment)
-   message += '\n\nЗагрузил пёселя на диск!'
+   vkapi.string_to_drive('dog.txt','woof woof woof')
+   message += '\nЗагрузил пёселя на диск!'
    return message, attachment
 
 dog_command = command_system.Command()

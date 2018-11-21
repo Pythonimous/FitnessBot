@@ -1,4 +1,3 @@
 token = '29e2bdbf99529dbbdb64aea79004e35fae3a1c119ff695658a8a620d414974eed36f1f0e34ef699d3df78'
 confirmation_token = '4f698ee6'
 access_token = '9ba3983c9ba3983c9ba3983c9b9bc563fc99ba39ba3983cc04b032b495261e61f1274da'
-credentials = 'credentials.json'
