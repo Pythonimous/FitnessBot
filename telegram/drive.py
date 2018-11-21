@@ -37,6 +37,7 @@ def to_drive(file):
 
 #to_drive('easy.py')
 
+
 # чтение файла
 def from_drive(file):
     files = drive.ListFile({'q': "'root' in parents and trashed=false"}).GetList() # список всех файлов в корневом каталоге
