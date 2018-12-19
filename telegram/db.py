@@ -1,7 +1,10 @@
 # -*- coding: utf-8 -*-
 import random
 import sqlite3
+from datetime import datetime
 
+
+#TODO: Запилить ООП?
 
 # РАБОТА С ПОЛЬЗОВАТЕЛЯМИ
 #Создание таблицы
@@ -37,12 +40,15 @@ def list_all():
     c = conn.cursor()
 
     c.execute('SELECT * FROM users')
-    users = c.fetchall()
+    users_tup = c.fetchall()
 
     # закрываем соединение с базой
     c.close()
     conn.close()
 
+    #print(users_tup)
+    users = [{'user_id':user[0], 'surname':user[1], 'name':user[2], 'gruppa':user[3], 'status':user[4]} for user in users_tup]
+    #print(users)
     return users
 
 # список пользователей по id
@@ -50,15 +56,22 @@ def list_them(ids):
     conn = sqlite3.connect('fitness.sqlite')
     c = conn.cursor()
 
-    users = []
+    users_tup = []
     for id in ids:
-        c.execute('SELECT surname, name, gruppa FROM users WHERE user_id={}'.format(id))
-        user = c.fetchone()
-        users.append(user)
+        user = c.execute('SELECT surname, name, gruppa FROM users WHERE user_id={}'.format(id)).fetchone()
+        users_tup.append(user)
     # закрываем соединение с базой
     c.close()
     conn.close()
 
+    #print(users_tup)
+    users = []
+    for user in users_tup:
+        if user:
+            users.append({'surname':user[0], 'name':user[1], 'gruppa':user[2]})
+        else: # отсеиваем юзеров с несуществующими id
+            users.append(None)
+    #print(users)
     return users
 
 # изменить данные в нужном столбце
@@ -84,6 +97,7 @@ def get_status(id):
 
     c.close()
     conn.close()
+    #print(status)
     return status
 
 
@@ -103,7 +117,7 @@ def del_user(id):
 # РАБОТА С РАСПИСАНИЕМ
 conn = sqlite3.connect('fitness.sqlite')
 c = conn.cursor()
-c.execute("CREATE TABLE IF NOT EXISTS timetable (lesson_id int, lesson varchar, day varchar, time varchar, g_size tinyint, left tinyint)")
+c.execute("CREATE TABLE IF NOT EXISTS timetable (lesson_id int, lesson varchar, time varchar, g_size tinyint, left tinyint)")
 conn.commit() #отправка данных в базу
 c.close()
 conn.close()
@@ -113,12 +127,14 @@ def list_timetable():
     conn = sqlite3.connect('fitness.sqlite')
     c = conn.cursor()
 
-    c.execute('SELECT lesson, day, time, left, lesson_id FROM timetable')
-    lessons = c.fetchall()
+    lessons_tup = c.execute('SELECT lesson, time, left, lesson_id FROM timetable').fetchall()
 
     # закрываем соединение с базой
     c.close()
     conn.close()
+
+    #print(lessons_tup)
+    lessons = [{'lesson':lesson[0], 'time':datetime.strptime(lesson[1], '%Y-%m-%d %H:%M:%S'), 'left':lesson[2], 'lesson_id':lesson[3]} for lesson in lessons_tup]
 
     return lessons
 
@@ -128,21 +144,35 @@ def list_open():
     conn = sqlite3.connect('fitness.sqlite')
     c = conn.cursor()
 
-    c.execute('SELECT lesson, day, time, left, lesson_id FROM timetable WHERE left>0')
-    lessons = c.fetchall()
+    lessons_tup = c.execute('SELECT lesson, time, left, lesson_id FROM timetable WHERE left>0').fetchall()
 
     # закрываем соединение с базой
     c.close()
     conn.close()
+    lessons = [{'lesson':lesson[0], 'time':datetime.strptime(lesson[1], '%Y-%m-%d %H:%M:%S'), 'left':lesson[2], 'lesson_id':lesson[3]} for lesson in lessons_tup]
 
     return lessons
 
 
 
 # создать занятие
-def add_lesson(lesson, day, time, g_size):
+def add_lesson(lesson, time, g_size):
+    # 30-1 17-30
+    #TODO: могут помешать лишние пробелы?
     conn = sqlite3.connect('fitness.sqlite')
     c = conn.cursor()
+
+    date, t = time.split()
+    d, mo = date.split('-')
+    h, mi = t.split('-')
+    # определяем год
+    now = datetime.now()
+    if int(mo) == 1 and now.month == 12: # с декабря задаём на январь
+        y = now.year+1 # переходим на следующий год
+    else:
+        y = now.year
+
+    new_time = datetime(day=int(d), month=int(mo), year=y, hour=int(h), minute=int(mi))
 
     lesson_ids = [id[0] for id in c.execute('SELECT lesson_id FROM timetable').fetchall()]
     #print(lesson_ids)
@@ -150,7 +180,7 @@ def add_lesson(lesson, day, time, g_size):
     while lesson_id in lesson_ids: # если такой уже есть
         lesson_id = random.randint(10,99) # подбираем новый id -- используем буквы, т.к. нельзя создать таблицу с числом в имени
     #print('new', lesson_id)
-    c.execute("INSERT INTO timetable (lesson_id, lesson, day, time, g_size, left) VALUES (?, ?, ?, ?, ?, ?)",(lesson_id, lesson, day, time, g_size, g_size))
+    c.execute("INSERT INTO timetable (lesson_id, lesson, time, g_size, left) VALUES (?, ?, ?, ?, ?)",(lesson_id, lesson.lower(), new_time, g_size, g_size))
 
     # создаём табличку для занятия
     c.execute("CREATE TABLE IF NOT EXISTS z{} (user_id int primary key, surname varchar, name varchar, gruppa varchar)".format(lesson_id))
@@ -169,12 +199,12 @@ def add_to_lesson (lesson_id, user_id):
 
     # сколько людей может записаться на занятие
     g_size = c.execute('SELECT g_size FROM timetable WHERE lesson_id={}'.format(lesson_id)).fetchone()[0]
-    print(g_size)
+    #print(g_size)
     # сколько уже записались
     n_people = c.execute('SELECT COUNT(*) FROM z{}'.format(lesson_id)).fetchone()[0] # выдаёт кортеж
-    print(n_people)
+    #print(n_people)
     left = g_size - n_people
-    print(left)
+    #print(left)
     if left:
         #print(True)
         user_data = c.execute('SELECT surname, name, gruppa FROM users WHERE user_id={}'.format(user_id)).fetchone()
@@ -257,9 +287,12 @@ def user_lessons(user_id):
 def get_lesson(lesson_id):
     conn = sqlite3.connect('fitness.sqlite')
     c = conn.cursor()
-    lesson = c.execute('SELECT lesson, day, time, g_size, left, lesson_id FROM timetable WHERE lesson_id={}'.format(lesson_id)).fetchone()
+    lesson_tup = c.execute('SELECT lesson, time, g_size, left, lesson_id FROM timetable WHERE lesson_id={}'.format(lesson_id)).fetchone()
     c.close()
     conn.close()
+
+    #print(lesson_tup)
+    lesson = {'lesson':lesson_tup[0], 'time':datetime.strptime(lesson_tup[1], '%Y-%m-%d %H:%M:%S'), 'g_size':lesson_tup[2], 'left':lesson_tup[3], 'lesson_id':lesson_tup[4]}
     return lesson
 
 
@@ -280,18 +313,23 @@ def del_lesson(lesson_id):
     return user_ids
 
 
-# Очистка расписания
-def reset_timetable():
+# Очистка расписания от устаревших занятий
+def clean_deprecated():
     conn = sqlite3.connect('fitness.sqlite')
     c = conn.cursor()
 
-    lesson_ids = c.execute('SELECT lesson_id FROM timetable').fetchall() # список старых занятий
-    #print(lesson_ids)
-    for lesson in lesson_ids:
-        lesson_id = lesson[0]
-        #print(lesson_id)
+    now = datetime.now()
+    print(now)
+
+    lessons = c.execute('SELECT lesson_id, time FROM timetable').fetchall() # список старых занятий
+    print(lessons)
+
+    depred = [lesson_id for lesson_id, lesson_time in lessons if datetime.strptime(lesson_time, '%Y-%m-%d %H:%M:%S')<now] # id устаревших занятий
+    print(depred)
+    for lesson_id in depred:
         c.execute('DROP TABLE z' + str(lesson_id)) # удаляем занятие
-    c.execute('DELETE FROM timetable')
+        c.execute('DELETE FROM timetable WHERE lesson_id={}'.format(lesson_id))
     conn.commit() #отправка данных в базу
+
     c.close()
     conn.close()
