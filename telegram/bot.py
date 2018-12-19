@@ -12,6 +12,23 @@ from telegram import ReplyKeyboardMarkup, KeyboardButton
 
 token='764336853:AAHHE0kNv9m95kUnCt5xmsX2w2av9LwTnaw'
 
+def day_of_week(isoweekday):
+    if isoweekday == 1:
+        return 'Пн'
+    if isoweekday == 2:
+        return 'Вт'
+    if isoweekday == 3:
+        return 'Ср'
+    if isoweekday == 4:
+        return 'Чт'
+    if isoweekday == 5:
+        return 'Пт'
+    if isoweekday == 6:
+        return 'Сб'
+    if isoweekday == 7:
+        return 'Вс'
+
+
 class Bot():
 
     def __init__(self, token):
@@ -45,12 +62,12 @@ class Bot():
 
         self.updater = Updater(token=token)  # заводим апдейтер
         self.updater.dispatcher.add_handler(CommandHandler('help', self.help))
-        self.updater.dispatcher.add_handler(CommandHandler('exit', self.exit))
+        self.updater.dispatcher.add_handler(CommandHandler('narnia', self.narnia))
         self.updater.dispatcher.add_handler(StartHandler)
         self.updater.dispatcher.add_handler(MainHandler)
 
 
-    teacher_markup = [[KeyboardButton('Расписание'), KeyboardButton('Сброс расписания'), KeyboardButton('Список')],
+    teacher_markup = [[KeyboardButton('Расписание'), KeyboardButton('Обновить расписание'), KeyboardButton('Список')],
                    [KeyboardButton('Создать занятие'), KeyboardButton('Отменить занятие')]]
     teacher_menu = ReplyKeyboardMarkup(teacher_markup, resize_keyboard=True, one_time_keyboard=True)
 
@@ -77,7 +94,7 @@ class Bot():
         return ConversationHandler.END
 
     #TODO: опасно в общий доступ: можно разлогиниться, залогиниться под чужим именем и отписаться, а потом вернуться под своё. Разрешить разлогин только мне, Цветочку и Киру на потестить?
-    def exit(self, bot, update):
+    def narnia(self, bot, update):
         chat_id = update.message.chat_id
         user_id = self.chats[chat_id][0]
         del(self.chats[chat_id]) # удаляем пользователя из чатов
@@ -101,7 +118,7 @@ class Bot():
 *Преподавателям:*
         — _Создать занятие:_\tназначить занятие и открыть запись на него
         — _Отменить занятие:_\tотменить занятие и оповестить об этом записавшихся студентов
-        — _Сброс расписания:_\tочистить расписание на прошедшую неделю и списки записавшихся (необходимо делать каждую неделю перед созданием расписания на следующую)\n
+        — _Обновить расписание:_\tудалить все устаревшие занятия и списки записавшихся на них (необходимо делать регулярно)\n
         Ключ доступа, необходимый для авторизации в качестве преподавателя, можно узнать на кафедре.'''
         bot.sendMessage(chat_id=update.message.chat_id, text=help_info, parse_mode='Markdown')
 
@@ -126,11 +143,11 @@ class Bot():
         if answer.isdigit(): # если ввели код
             user_id = int(answer)
             print(user_id)
-            user = db.list_them([user_id])[0]
+            user = db.list_them([user_id])[0] # получаем словарь пользователя
             print(user)
             if user: # если вернулся не None
-                self.users[user_id] = [update.message.chat_id, user[1]]
-                self.chats[update.message.chat_id] = [user_id, user[1]]
+                self.users[user_id] = [update.message.chat_id, user['name']]
+                self.chats[update.message.chat_id] = [user_id, user['name']]
                 if db.get_status(user_id) == 'teacher':
                     self.teachers[update.message.chat_id] = user_id
                 print('users\t', self.users)
@@ -146,7 +163,7 @@ class Bot():
                 bot.sendMessage(chat_id=update.message.chat_id, text='К сожалению, такого id в нашей базе нет. Попробуйте снова или отправьте любое текстовое сообщение, чтобы зарегистрироваться.')
                 return 'id'
         else: # совсем новенький
-            user_ids = [user[0] for user in db.list_all()] # кто есть в базе
+            user_ids = [user['user_id'] for user in db.list_all()] # кто есть в базе
             print('users in base\t', user_ids)
             user_id = random.randint(1000, 9999) # четырёхзначное число
             while user_id in user_ids:
@@ -189,11 +206,11 @@ class Bot():
             return ConversationHandler.END
         else:
             timetable_list = db.list_timetable()
-            timetable_markup = [[InlineKeyboardButton('{}, {} {}\nМест: {}'.format(lesson[0].capitalize(), lesson[1], lesson[2], lesson[3]), callback_data=lesson[4])] for lesson in timetable_list]
+            timetable_markup = [[InlineKeyboardButton('{}, {}.{} ({}) в {}:{}\nМест: {}'.format(lesson['lesson'].capitalize(), lesson['time'].day, lesson['time'].month, day_of_week(lesson['time'].isoweekday()), lesson['time'].hour, lesson['time'].minute, lesson['left']), callback_data=lesson['lesson_id'])] for lesson in timetable_list]
             timetable = InlineKeyboardMarkup(timetable_markup)
 
             open_list = db.list_open()
-            open_markup = [[InlineKeyboardButton('{}, {} {}\nМест: {}'.format(lesson[0].capitalize(), lesson[1], lesson[2], lesson[3]), callback_data=lesson[4])] for lesson in open_list]
+            open_markup = [[InlineKeyboardButton('{}, {}.{} ({}) в {}:{}\nМест: {}'.format(lesson['lesson'].capitalize(), lesson['time'].day, lesson['time'].month, day_of_week(lesson['time'].isoweekday()), lesson['time'].hour, lesson['time'].minute, lesson['left']), callback_data=lesson['lesson_id'])] for lesson in open_list]
             open_timetable = InlineKeyboardMarkup(open_markup)
 
 
@@ -202,20 +219,19 @@ class Bot():
                 lessons = '*Расписание:*'
                 if timetable_list: # если есть занятия
                     for les in timetable_list: # добавляем строчки с уроками
-                        lesson = '\n`— {}, {} {}. Осталось мест: {}`'.format(les[0].capitalize(), les[1], les[2], les[3])
+                        lesson = '\n`— {}, {}.{} ({}) в {}:{}. Осталось мест: {}`'.format(les['lesson'].capitalize(), les['time'].day, les['time'].month, day_of_week(les['time'].isoweekday()), les['time'].hour, les['time'].minute, les['left'])
                         #print(lesson)
                         lessons = lessons+lesson
                 else:
                     lessons = 'Пока на эту неделю не назначено ни одного занятия.'
                 print(lessons)
                 bot.sendMessage(chat_id=update.message.chat_id, parse_mode='Markdown', text=lessons)
-                #TODO: сделать разметку
                 return ConversationHandler.END
 
 
             elif update.message.text.lower() == 'создать занятие':
                 if update.message.chat_id in self.teachers:
-                    bot.sendMessage(chat_id=update.message.chat_id, text='Введите занятие в формате "Занятие, день недели, время, количество мест"\n_Пример: Силовая тренировка, понедельник, 17-00, 20_', parse_mode='Markdown')
+                    bot.sendMessage(chat_id=update.message.chat_id, text='Введите занятие в формате "Занятие, день-месяц часы-минуты, количество мест"\n_Пример: Силовая тренировка, 14-12 17-00, 20_', parse_mode='Markdown')
                     return 'create'
                     #TODO: проверять, есть ли на это время уже занятия
                 else:
@@ -236,11 +252,11 @@ class Bot():
                     return ConversationHandler.END
 
 
-            elif update.message.text.lower() == 'сброс расписания':
+            elif update.message.text.lower() == 'обновить расписание':
                 if update.message.chat_id in self.teachers:
                     if timetable_list: # если уже есть занятия
-                        db.reset_timetable()
-                        bot.sendMessage(chat_id=update.message.chat_id, text='Расписание было сброшено.')
+                        db.clean_deprecated()
+                        bot.sendMessage(chat_id=update.message.chat_id, text='Все устаревшие занятия были удалены из расписания.')
                         return ConversationHandler.END
                     else:
                         bot.sendMessage(chat_id=update.message.chat_id, text='Пока что на эту неделю не назначено ни одного занятия.')
@@ -274,7 +290,7 @@ class Bot():
                     user_timetable_list = [db.get_lesson(lesson_id) for lesson_id in db.user_lessons(self.chats[update.message.chat_id][0])]
                     print(user_timetable_list)
                     if user_timetable_list: # если пользователь на что-то записан
-                        user_timetable_markup = [[InlineKeyboardButton('{}, {} {}'.format(lesson[0].capitalize(), lesson[1], lesson[2]), callback_data=lesson[5])] for lesson in user_timetable_list]
+                        user_timetable_markup = [[InlineKeyboardButton('{}, {}.{} ({}) в {}:{}'.format(lesson['lesson'].capitalize(), lesson['time'].day, lesson['time'].month, day_of_week(lesson['time'].isoweekday()), lesson['time'].hour, lesson['time'].minute), callback_data=lesson['lesson_id'])] for lesson in user_timetable_list]
                         user_timetable = InlineKeyboardMarkup(user_timetable_markup)
                         bot.sendMessage(chat_id=update.message.chat_id, text='На какое занятие Вы хотите отменить запись?', reply_markup=user_timetable)
                         return 'canrol'
@@ -304,14 +320,13 @@ class Bot():
                     lessons = '*Мои занятия:*'
                     if user_timetable_list: # если пользователь уже на что-то записан
                         for les in user_timetable_list: # добавляем строчки с занятиями
-                            lesson = '`\n— {}, {} {}`'.format(les[0].capitalize(), les[1], les[2])
+                            lesson = '`\n— {}, {}.{} ({}) в {}:{}`'.format(les['lesson'].capitalize(), les['time'].day, les['time'].month, day_of_week(les['time'].isoweekday()), les['time'].hour, les['time'].minute)
                             #print(lesson)
                             lessons = lessons+lesson
                     else:
                         lessons = 'Пока что Вы не записаны ни на одно занятие.'
                     print(lessons)
                     bot.sendMessage(chat_id=update.message.chat_id, parse_mode='Markdown', text=lessons)
-                    #TODO: сделать разметку
                     return ConversationHandler.END
                 else:
                     bot.sendMessage(chat_id=update.message.chat_id, text='Только студенты могут просматривать список своих занятий.')
@@ -326,12 +341,16 @@ class Bot():
     def create_lesson(self, bot, update):
         new_lesson = update.message.text.lower().replace(', ',',').split(',')
         print(new_lesson)
-        if len(new_lesson) == 4 and new_lesson[3].isdigit(): # введены все параметры, последний -- число (размер группы)
-            db.add_lesson(new_lesson[0], new_lesson[1], new_lesson[2], new_lesson[3])
-            bot.sendMessage(chat_id=update.message.chat_id, text='Вы создали занятие {}, {} {}, с размером группы {} человек(а).'.format(new_lesson[0], new_lesson[1], new_lesson[2], new_lesson[3]))
-            return ConversationHandler.END
+        if len(new_lesson) == 3 and new_lesson[-1].isdigit(): # введены все параметры, последний -- число (размер группы)
+            try:
+                db.add_lesson(new_lesson[0], new_lesson[1], new_lesson[2])
+                bot.sendMessage(chat_id=update.message.chat_id, text='Вы создали занятие {}, {} в {}, с размером группы {} человек(а).'.format(new_lesson[0], new_lesson[1].split()[0], new_lesson[1].split()[1], new_lesson[2]))
+                return ConversationHandler.END
+            except:
+                bot.sendMessage(chat_id=update.message.chat_id, text='Неправильные данные! Пожалуйста, введите занятие в формате "Занятие, день-месяц часы-минуты, количество мест. Дата должа быть введена числами!"\n_Пример: Силовая тренировка, 12-12 17-00, 20_', parse_mode='Markdown')
+                return 'create'
         else:
-            bot.sendMessage(chat_id=update.message.chat_id, text='Неправильные данные! Пожалуйста, введите занятие в формате "Занятие, день недели, время, количество мест"\n_Пример: Силовая тренировка, понедельник, 17-00, 20_', parse_mode='Markdown')
+            bot.sendMessage(chat_id=update.message.chat_id, text='Неправильные данные! Пожалуйста, введите занятие в формате "Занятие, день-месяц часы-минуты, количество мест. Дата должна быть введена числами!"\n_Пример: Силовая тренировка, 12-12 17-00, 20_', parse_mode='Markdown')
             return 'create'
 
     def cancel_lesson(self, bot, update):
@@ -340,12 +359,12 @@ class Bot():
         print(lesson_id)
         lesson = db.get_lesson(lesson_id)
         print(lesson)
-        bot.sendMessage(chat_id=query.message.chat_id, text='Вы отменили занятие {}, {} {}. Все студенты, записавшиеся на это занятие, будут оповещены.'.format(lesson[0], lesson[1], lesson[2]))
+        bot.sendMessage(chat_id=query.message.chat_id, text='Вы отменили занятие {}, {}.{} ({}) в {}:{}. Все студенты, записавшиеся на это занятие, будут оповещены.'.format(lesson['lesson'], lesson['time'].day, lesson['time'].month, day_of_week(lesson['time'].isoweekday()), lesson['time'].hour, lesson['time'].minute))
         users = db.del_lesson(lesson_id)
         print(users)
         for user in users:
             if user in self.users: # если наш пользователь
-                bot.sendMessage(chat_id=self.users[user][0], text='Занятие {}, {} {}, на которое Вы были записаны, отменено.'.format(lesson[0], lesson[1], lesson[2]))
+                bot.sendMessage(chat_id=self.users[user][0], text='Занятие {}, {}.{} ({}) в {}:{}, на которое Вы были записаны, отменено.'.format(lesson['lesson'], lesson['time'].day, lesson['time'].month, day_of_week(lesson['time'].isoweekday()), lesson['time'].hour, lesson['time'].minute))
         #TODO: можно ли рассылать не в цикле, а список давать?
         return ConversationHandler.END
 
@@ -358,10 +377,10 @@ class Bot():
         user_id = self.chats[query.message.chat_id][0]
         users = db.list_lesson(lesson_id)
         if user_id in users: # уже на занятии
-            bot.sendMessage(chat_id=query.message.chat_id, text='Вы уже записаны на занятие {}, {} {}. Хорошей тренировки!'.format(lesson[0], lesson[1], lesson[2]))
+            bot.sendMessage(chat_id=query.message.chat_id, text='Вы уже записаны на занятие {}, {}.{} ({}) в {}:{}. Хорошей тренировки!'.format(lesson['lesson'], lesson['time'].day, lesson['time'].month, day_of_week(lesson['time'].isoweekday()), lesson['time'].hour, lesson['time'].minute))
         else:
             db.add_to_lesson(lesson_id, user_id)
-            bot.sendMessage(chat_id=query.message.chat_id, text='Вы записались на занятие {}, {} {}. Хорошей тренировки!'.format(lesson[0], lesson[1], lesson[2]))
+            bot.sendMessage(chat_id=query.message.chat_id, text='Вы записались на занятие {}, {}.{} ({}) в {}:{}. Хорошей тренировки!'.format(lesson['lesson'], lesson['time'].day, lesson['time'].month, day_of_week(lesson['time'].isoweekday()), lesson['time'].hour, lesson['time'].minute))
             #TODO: добавлять в группу ожидания
             #except:
             #    bot.sendMessage(chat_id=query.message.chat_id, text='К сожалению, места на это занятие уже кончились.')
@@ -374,7 +393,7 @@ class Bot():
         lesson = db.get_lesson(lesson_id)
         print(lesson)
         db.del_from_lesson(lesson_id, self.chats[query.message.chat_id][0])
-        bot.sendMessage(chat_id=query.message.chat_id, text='Вы отменили запись на занятие {}, {} {}. Приходите ещё!'.format(lesson[0], lesson[1], lesson[2]))
+        bot.sendMessage(chat_id=query.message.chat_id, text='Вы отменили запись на занятие {}, {}.{} ({}) в {}:{}. Приходите ещё!'.format(lesson['lesson'], lesson['time'].day, lesson['time'].month, day_of_week(lesson['time'].isoweekday()), lesson['time'].hour, lesson['time'].minute))
         return ConversationHandler.END
 
     def list_lesson(self, bot, update):
@@ -389,13 +408,12 @@ class Bot():
         if users: # если кто-то уже записан
             user_list = ''
             for i, user in enumerate(users):
-                user_list+='`{}) {} {}, {}`\n'.format(i+1, user[0], user[1], user[2])
+                user_list+='`{}) {} {}, {}`\n'.format(i+1, user['surname'], user['name'], user['gruppa'])
             user_list+='`\nОсталось мест: {}`'.format(lesson[4])
             print(user_list)
         else:
             user_list = 'На занятие пока никто не записан.'
-        bot.sendMessage(chat_id=query.message.chat_id, parse_mode='Markdown', text='*{}, {} {} ({} чел.):*\n{}'.format(lesson[0].capitalize(), lesson[1], lesson[2], lesson[3], user_list))
-        #TODO: сделать разметку
+        bot.sendMessage(chat_id=query.message.chat_id, parse_mode='Markdown', text='*{}, {}.{} ({}) в {}:{} ({} чел.):*\n{}'.format(lesson['lesson'].capitalize(), lesson['time'].day, lesson['time'].month, day_of_week(lesson['time'].isoweekday()), lesson['time'].hour, lesson['time'].minute, lesson['g_size'], user_list))
         return ConversationHandler.END
 
 
@@ -406,7 +424,7 @@ if __name__ == "__main__":
     bot.updater.start_polling()
 '''
 while True: # отслеживаем время
-    now = datetime.datetime.now()
+    now = datetime.now()
     #print(now)
     if now.isoweekday() == 7 and now.hour == 0 and now.minute == 0 and now.second == 0: # воскресенье 00:00:00
         print(now)
